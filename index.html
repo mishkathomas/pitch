@@ -450,7 +450,7 @@ function tick(){
     const ev=tl.events[schedIdx];
     const t=Math.max(melodyStart+ev.start,now+0.02);
     if(aids.metro) click(t,1000,0.12);
-    if(aids.piano) piano(t,midiToFreq(ev.midi),Math.min(ev.dur*1.05,1.6),0.22);
+    if(aids.piano) piano(t,midiToFreq(ev.midi),Math.min(ev.dur*1.35+0.35,2.6),0.22);
     schedIdx++;
   }
   if(now>melodyStart+tl.total) finishPass();
@@ -535,6 +535,19 @@ function drawGrid(){
     }
   }
 }
+/* is there a moment with no active note starting within `win` seconds? */
+function nextGapWithin(e,win){
+  if(!tl) return false;
+  for(let dt=0.05;dt<=win;dt+=0.08){
+    const t=e+dt;
+    let covered=false;
+    for(const ev of tl.events){
+      if(t>=ev.start&&t<ev.start+ev.dur){covered=true;break;}
+    }
+    if(!covered) return true;
+  }
+  return false;
+}
 let viewCommitLo=48,viewCommitHi=64,outFrames=0;
 function contentSpan(from,to){
   let lo=Infinity,hi=-Infinity;
@@ -557,12 +570,18 @@ function updateView(elapsed,lookahead){
     const pressing=(lo<viewCommitLo+1.2)||(hi>viewCommitHi-1.2);
     outFrames=pressing?outFrames+1:0;
     if(outFrames>10){
-      let [flo,fhi]=contentSpan(e-1.0,e+12);
-      if(!isFinite(flo)){flo=lo;fhi=hi;}
-      flo=Math.min(flo,lo);fhi=Math.max(fhi,hi);
-      flo-=3;fhi+=3;
-      if(fhi-flo<12){const p=(12-(fhi-flo))/2;flo-=p;fhi+=p;}
-      viewCommitLo=flo;viewCommitHi=fhi;outFrames=0;
+      // prefer to move during a silence: if a gap is coming up soon, wait for it
+      const inGap=!isFinite(contentSpan(e-0.01,e+0.01)[0]);
+      const gapSoon=nextGapWithin(e,1.4);
+      const urgent=(lo<viewCommitLo+0.1)||(hi>viewCommitHi-0.1);
+      if(inGap||urgent||!gapSoon){
+        let [flo,fhi]=contentSpan(e-1.0,e+12);
+        if(!isFinite(flo)){flo=lo;fhi=hi;}
+        flo=Math.min(flo,lo);fhi=Math.max(fhi,hi);
+        flo-=3;fhi+=3;
+        if(fhi-flo<12){const p=(12-(fhi-flo))/2;flo-=p;fhi+=p;}
+        viewCommitLo=flo;viewCommitHi=fhi;outFrames=0;
+      }
     }
   }
   viewLo+=(viewCommitLo-viewLo)*0.10;
@@ -609,7 +628,7 @@ function drawPlay(){
     const x=phx+(ev.start-rel)*pxPerSec,w=ev.dur*pxPerSec;
     if(x>W||x+w<0) return;
     const y=midiToY(ev.midi);
-    const bandH=semi*0.94,coreH=semi*0.40;
+    const bandH=Math.min(semi*2.8,H*0.30),coreH=Math.min(semi*1.15,H*0.12);
     const active=elapsed!==null&&rel>=ev.start&&rel<ev.start+ev.dur;
     ctx.fillStyle=active?'rgba(79,209,197,0.16)':'rgba(79,209,197,0.08)';
     ctx.strokeStyle=active?'rgba(79,209,197,0.9)':'rgba(79,209,197,0.45)';
@@ -620,7 +639,7 @@ function drawPlay(){
 
     const pts=fills.get(idx);
     if(pts&&pts.length){
-      const fh=Math.max(coreH*0.86,3);
+      const fh=Math.max(Math.min(semi*1.0,H*0.10),3);
       for(let i=0;i<pts.length;i++){
         const p=pts[i];
         const t2=(i+1<pts.length?pts[i+1].t:Math.min(p.t+0.05,ev.start+ev.dur));
@@ -963,7 +982,7 @@ document.getElementById('ePreview').onclick=async()=>{
   await ensureAudio();
   const beat=60/bpm,t0=audioCtx.currentTime+0.1;
   curPhrase().forEach(n=>{
-    piano(t0+n.s*beat,midiToFreq(clampMidi(n.m+transpose)),Math.min(n.b*beat*1.05,1.6),0.22);});
+    piano(t0+n.s*beat,midiToFreq(clampMidi(n.m+transpose)),Math.min(n.b*beat*1.35+0.35,2.6),0.22);});
 };
 document.getElementById('eWords').onclick=()=>{
   const ph=curPhrase();
