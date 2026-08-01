@@ -41,6 +41,7 @@
     padding:9px var(--pad) calc(9px + env(safe-area-inset-bottom));
     display:flex;flex-direction:column;gap:8px;}
   #editor{display:none;}
+  #editor .row{flex-wrap:wrap;}
   body.editing #controls{display:none;}
   body.editing #editor{display:flex;}
 
@@ -208,6 +209,7 @@
       <button id="ePack">Pack</button><button id="ePreview">Play</button><button id="eRevert">Revert</button>
     </div>
     <div class="row">
+      <button class="chip" id="eWords">Words…</button>
       <button class="chip warm" id="eSave" style="flex:1">Save as…</button>
       <button class="chip" id="eExport">Copy</button>
       <button class="chip" id="eImport">Paste</button>
@@ -245,14 +247,21 @@ const SONG_LINES=[
   [M.G3,M.A3,M.Bb3,M.A3,M.G3,M.F3,M.D3,M.F3],
   [M.F3,M.D3,M.C3,M.F3,M.G3,M.F3]
 ];
-function toPhrase(line){
+const REFRAIN_WORDS=['will','ye','go','las','sie','go'];
+function toPhrase(line,words){
   let s=0;
-  return line.map((m,i)=>{const b=i===line.length-1?2:1;const n={m,b,s};s+=b;return n;});
+  return line.map((m,i)=>{
+    const b=i===line.length-1?2:1;
+    const n={m,b,s};
+    if(words&&words[i]) n.t=words[i];
+    s+=b;return n;
+  });
 }
 function builtins(){
   return [
     {id:'warmup',name:'Warm-up scale (F)',builtin:true,phrases:[toPhrase(WARMUP_LINE)]},
-    {id:'song',name:'Lassie Go (F)',builtin:true,phrases:SONG_LINES.map(toPhrase)}
+    {id:'song',name:'Lassie Go (F)',builtin:true,
+     phrases:SONG_LINES.map((l,i)=>toPhrase(l,(i===4||i===8)?REFRAIN_WORDS:null))}
   ];
 }
 const clone=o=>JSON.parse(JSON.stringify(o));
@@ -401,7 +410,7 @@ function makeTimeline(p,bpm,tr){
   p.phrases.forEach(ph=>{
     ph.forEach(n=>{
       const m=clampMidi(n.m+tr);
-      ev.push({midi:m,start:(base+n.s)*beat,dur:n.b*beat,name:noteName(m)});
+      ev.push({midi:m,start:(base+n.s)*beat,dur:n.b*beat,name:noteName(m),t:n.t||''});
     });
     base+=phraseSpan(ph)+1;
   });
@@ -526,18 +535,38 @@ function drawGrid(){
     }
   }
 }
-function targetSpan(elapsed,lookahead){
+let viewCommitLo=48,viewCommitHi=64,outFrames=0;
+function contentSpan(from,to){
   let lo=Infinity,hi=-Infinity;
   if(tl) tl.events.forEach(ev=>{
-    if(ev.start+ev.dur>elapsed-1.2&&ev.start<elapsed+lookahead){
-      lo=Math.min(lo,ev.midi);hi=Math.max(hi,ev.midi);}
+    if(ev.start+ev.dur>from&&ev.start<to){lo=Math.min(lo,ev.midi);hi=Math.max(hi,ev.midi);}
   });
-  if(heldMidi!==null){lo=Math.min(lo,heldMidi);hi=Math.max(hi,heldMidi);}
-  if(!isFinite(lo)){lo=viewLo+3;hi=viewHi-3;}
-  lo-=3;hi+=3;
-  const span=hi-lo;
-  if(span<9){const p=(9-span)/2;lo-=p;hi+=p;}
   return [lo,hi];
+}
+/* the view holds still until notes (or your voice) press against the margin
+   for a sustained moment; then it recommits once, over a long horizon */
+function updateView(elapsed,lookahead){
+  if(!aids.follow){
+    const [lo,hi]=pieceRange(piece(),transpose);
+    viewCommitLo=lo-4;viewCommitHi=hi+4;outFrames=0;
+  }else{
+    const e=elapsed===null?0:elapsed;
+    let [lo,hi]=contentSpan(e-1.0,e+lookahead);
+    if(heldMidi!==null){lo=Math.min(lo,heldMidi);hi=Math.max(hi,heldMidi);}
+    if(!isFinite(lo)){lo=viewCommitLo+4;hi=viewCommitHi-4;}
+    const pressing=(lo<viewCommitLo+1.2)||(hi>viewCommitHi-1.2);
+    outFrames=pressing?outFrames+1:0;
+    if(outFrames>10){
+      let [flo,fhi]=contentSpan(e-1.0,e+12);
+      if(!isFinite(flo)){flo=lo;fhi=hi;}
+      flo=Math.min(flo,lo);fhi=Math.max(fhi,hi);
+      flo-=3;fhi+=3;
+      if(fhi-flo<12){const p=(12-(fhi-flo))/2;flo-=p;fhi+=p;}
+      viewCommitLo=flo;viewCommitHi=fhi;outFrames=0;
+    }
+  }
+  viewLo+=(viewCommitLo-viewLo)*0.10;
+  viewHi+=(viewCommitHi-viewHi)*0.10;
 }
 function drawPlay(){
   const lookahead=W>900?5.0:3.6;
@@ -546,13 +575,7 @@ function drawPlay(){
   if(!tl) tl=makeTimeline(piece(),bpm,transpose);
   const elapsed=(running&&passActive)?audioCtx.currentTime-melodyStart:null;
 
-  if(aids.follow){
-    const [dLo,dHi]=targetSpan(elapsed===null?0:elapsed,lookahead);
-    viewLo+=(dLo-viewLo)*0.07;viewHi+=(dHi-viewHi)*0.07;
-  }else{
-    const [lo,hi]=pieceRange(piece(),transpose);
-    viewLo+=((lo-4)-viewLo)*0.07;viewHi+=((hi+4)-viewHi)*0.07;
-  }
+  updateView(elapsed,lookahead);
   const semi=semitonePx();
   drawGrid();
   const rel=elapsed===null?-0.6:elapsed;
@@ -568,7 +591,21 @@ function drawPlay(){
     ctx.textAlign='left';ctx.fillText('START',sx+4,H*TOP*0.4+6);
   }
 
-  tl.events.forEach(ev=>{
+  // bucket the pitch trace into the note it landed in, so each note colours in progressively
+  const fills=new Map();
+  if(elapsed!==null&&trail.length){
+    let ei=0;
+    for(const p of trail){
+      while(ei<tl.events.length&&tl.events[ei].start+tl.events[ei].dur<=p.t) ei++;
+      if(ei>=tl.events.length) break;
+      if(p.t>=tl.events[ei].start){
+        if(!fills.has(ei)) fills.set(ei,[]);
+        fills.get(ei).push(p);
+      }
+    }
+  }
+
+  tl.events.forEach((ev,idx)=>{
     const x=phx+(ev.start-rel)*pxPerSec,w=ev.dur*pxPerSec;
     if(x>W||x+w<0) return;
     const y=midiToY(ev.midi);
@@ -580,10 +617,31 @@ function drawPlay(){
     roundRect(x,y-bandH/2,Math.max(w-2,6),bandH,5);ctx.fill();ctx.stroke();
     ctx.fillStyle=active?'rgba(79,209,197,0.34)':'rgba(79,209,197,0.18)';
     roundRect(x,y-coreH/2,Math.max(w-2,6),coreH,3);ctx.fill();
+
+    const pts=fills.get(idx);
+    if(pts&&pts.length){
+      const fh=Math.max(coreH*0.86,3);
+      for(let i=0;i<pts.length;i++){
+        const p=pts[i];
+        const t2=(i+1<pts.length?pts[i+1].t:Math.min(p.t+0.05,ev.start+ev.dur));
+        const fx=phx+(p.t-rel)*pxPerSec;
+        const fw=Math.max((t2-p.t)*pxPerSec,1.5);
+        const c=(p.midi-ev.midi)*100;
+        ctx.fillStyle=Math.abs(c)<=20?'rgba(52,211,153,0.9)':centsColor(c);
+        ctx.fillRect(fx,y-fh/2,fw,fh);
+      }
+    }
+
     if(w>26&&bandH>15){
       ctx.fillStyle='rgba(231,233,240,0.9)';
       ctx.font='11px ui-monospace,Menlo,monospace';ctx.textAlign='left';
       ctx.fillText(ev.name,x+7,y);
+    }
+    if(ev.t&&w>16){
+      ctx.fillStyle=active?'rgba(245,196,81,0.95)':'rgba(231,233,240,0.65)';
+      ctx.font=(active?'700 ':'600 ')+'12px system-ui';ctx.textAlign='center';
+      ctx.fillText(ev.t,x+Math.max(w-2,6)/2,y+bandH/2+12);
+      ctx.textAlign='left';
     }
   });
 
@@ -713,6 +771,12 @@ function drawEditor(){
       ctx.fillText(noteName(n.m),x+Math.max(w,10)/2,y);
       ctx.textAlign='left';
     }
+    if(n.t&&w>14){
+      ctx.fillStyle=sel?'rgba(245,196,81,0.95)':'rgba(231,233,240,0.65)';
+      ctx.font='600 12px system-ui';ctx.textAlign='center';
+      ctx.fillText(n.t,x+Math.max(w,10)/2,y+h/2+12);
+      ctx.textAlign='left';
+    }
   });
 }
 function frame(){
@@ -797,7 +861,9 @@ function refreshPhrase(){
 function refreshNoteReadout(){
   const n=selRef;
   document.getElementById('nSel').textContent=n?noteName(n.m):'—';
-  document.getElementById('nInfo').textContent=n?('beat '+(+n.s.toFixed(2))+' · '+(+n.b.toFixed(2))+'b'):'tap a note';
+  document.getElementById('nInfo').textContent=n
+    ?('beat '+(+n.s.toFixed(2))+' · '+(+n.b.toFixed(2))+'b'+(n.t?' · '+n.t:''))
+    :'tap a note';
   refreshTranspose();
 }
 document.getElementById('pieceSel').addEventListener('change',e=>{
@@ -898,6 +964,22 @@ document.getElementById('ePreview').onclick=async()=>{
   const beat=60/bpm,t0=audioCtx.currentTime+0.1;
   curPhrase().forEach(n=>{
     piano(t0+n.s*beat,midiToFreq(clampMidi(n.m+transpose)),Math.min(n.b*beat*1.05,1.6),0.22);});
+};
+document.getElementById('eWords').onclick=()=>{
+  const ph=curPhrase();
+  if(!ph.length) return;
+  const cur=ph.map(n=>n.t||'·').join(' ');
+  const raw=prompt('One syllable per note, separated by spaces ('+ph.length+' notes). Use · for a blank.',cur);
+  if(raw===null) return;
+  const parts=raw.trim().length?raw.trim().split(/\s+/):[];
+  ph.forEach((n,i)=>{
+    const w=parts[i];
+    if(!w||w==='·') delete n.t; else n.t=w;
+  });
+  tl=null;refreshNoteReadout();
+  emsg(parts.length===ph.length
+    ? 'Words set for phrase '+(phIdx+1)+'.'
+    : 'Set '+Math.min(parts.length,ph.length)+' of '+ph.length+' notes — counts differ.');
 };
 document.getElementById('eRevert').onclick=()=>{
   if(!pristine||!pristine[phIdx]) return;
