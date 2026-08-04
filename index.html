@@ -685,7 +685,17 @@ function drawPlay(){
         smoothHist.push(mf);if(smoothHist.length>4) smoothHist.shift();
         const s=[...smoothHist].sort((a,b)=>a-b);
         heldMidi=s[Math.floor(s.length/2)];
-        trail.push({t:elapsed,midi:heldMidi});
+        // resolve color now, against the note active at THIS instant, and freeze it
+        let own=null;
+        for(const ev of tl.events){
+          if(elapsed>=ev.start&&elapsed<ev.start+ev.dur){own=ev;break;}
+        }
+        let col='rgba(180,185,200,0.55)';
+        if(own){
+          const c=(heldMidi-own.midi)*100;
+          col=Math.abs(c)<=20?'rgba(52,211,153,0.95)':centsColor(c);
+        }
+        trail.push({t:elapsed,midi:heldMidi,col});
       }else{heldMidi=null;smoothHist.length=0;}
       updateMeter();
     }
@@ -698,12 +708,11 @@ function drawPlay(){
     }
     document.getElementById('prog').textContent=
       (tgtIdx>=0?(tgtIdx+1):'–')+' / '+tl.events.length;
-    const dotR=Math.max(3,Math.min(semi*0.16,4));
+    const dotR=Math.max(1.5,Math.min(semi*0.07,2.5));
     for(const p of trail){
       const x=phx+(p.t-elapsed)*pxPerSec,y=midiToY(p.midi);
-      let col='rgba(180,185,200,0.5)';
-      if(tgt){const c=(p.midi-tgt.midi)*100;col=Math.abs(c)<=20?'rgba(52,211,153,0.9)':centsColor(c);}
-      ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,dotR,0,7);ctx.fill();
+      ctx.fillStyle=p.col||'rgba(180,185,200,0.55)';
+      ctx.beginPath();ctx.arc(x,y,dotR,0,7);ctx.fill();
     }
     const centsEl=document.getElementById('cents');
     document.getElementById('tval').textContent=tgt?tgt.name:'—';
@@ -716,8 +725,8 @@ function drawPlay(){
         passErrSum+=Math.abs(cents);passErrCount++;
       }
       ctx.fillStyle=col;
-      ctx.beginPath();ctx.arc(phx,y,Math.max(6,Math.min(semi*0.28,11)),0,7);ctx.fill();
-      ctx.strokeStyle='rgba(0,0,0,0.35)';ctx.lineWidth=2;ctx.stroke();
+      ctx.beginPath();ctx.arc(phx,y,Math.max(3.5,Math.min(semi*0.13,5)),0,7);ctx.fill();
+      ctx.strokeStyle='rgba(0,0,0,0.4)';ctx.lineWidth=1.5;ctx.stroke();
       if(tgt&&cents!==null){
         if(Math.abs(cents)<=20) setCue('✓ in tune',col);
         else if(cents>0) setCue('▼ high — ease down',col);
