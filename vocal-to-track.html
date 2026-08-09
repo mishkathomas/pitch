@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Vocal → Track</title>
+<style>
+  :root{
+    --ink:#171a24; --panel:#1e2230; --panel2:#262b3b;
+    --line:#333a4f; --text:#e7e9f0; --muted:#8b90a3;
+    --target:#4fd1c5; --intune:#34d399; --flat:#38bdf8; --sharp:#fb7185;
+    --accent:#f5c451; --pad:16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{background:var(--ink);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    min-height:100dvh;display:flex;justify-content:center;}
+  #app{width:100%;max-width:1000px;display:flex;flex-direction:column;min-height:100dvh;}
+  header{padding:14px var(--pad) 10px;border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.16em;text-transform:uppercase;}
+  header .sub{font-size:11px;color:var(--muted);letter-spacing:.03em;}
+  a.link{color:var(--target);text-decoration:none;font-size:12px;font-weight:600;}
+  main{flex:1;padding:var(--pad);display:flex;flex-direction:column;gap:14px;}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;
+    display:flex;flex-direction:column;gap:12px;}
+  .card h2{margin:0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700;}
+  .step{display:flex;align-items:center;gap:8px;}
+  .step .n{width:22px;height:22px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);
+    color:var(--muted);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+
+  .drop{border:1.5px dashed var(--line);border-radius:12px;padding:22px;text-align:center;
+    color:var(--muted);font-size:13px;cursor:pointer;transition:border-color .15s,color .15s;}
+  .drop:hover,.drop.over{border-color:var(--target);color:var(--text);}
+  .drop b{color:var(--text);}
+  input[type=file]{display:none;}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:11px;color:var(--muted);letter-spacing:.06em;}
+  .field .rowin{display:flex;align-items:center;gap:8px;}
+  input[type=number]{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;font-size:13px;font-family:ui-monospace,Menlo,monospace;width:100%;}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;width:100%;}
+  input[type=range]{width:100%;accent-color:var(--target);}
+  .rangeval{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);min-width:44px;text-align:right;}
+
+  button.btn{border:0;border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;cursor:pointer;
+    letter-spacing:.05em;color:#0b0d13;background:var(--accent);transition:filter .15s;}
+  button.btn:hover{filter:brightness(1.08);}
+  button.btn.sec{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
+  button.btn.sec:hover{border-color:var(--target);filter:none;}
+  button.btn:disabled{opacity:.4;cursor:default;filter:none;}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;}
+  .btnrow button{flex:1;min-width:120px;}
+  .tap{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+  .tap:hover{border-color:var(--target);}
+
+  #bar{height:8px;border-radius:5px;background:var(--panel2);overflow:hidden;border:1px solid var(--line);display:none;}
+  #barfill{height:100%;width:0%;background:var(--target);transition:width .1s linear;}
+
+  canvas{width:100%;height:200px;display:block;background:var(--ink);border:1px solid var(--line);border-radius:10px;}
+  .stat{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);
+    font-family:ui-monospace,Menlo,monospace;}
+  .stat b{color:var(--text);font-weight:600;}
+  #msg{font-size:12px;color:var(--accent);min-height:16px;}
+  #msg.err{color:var(--sharp);}
+  .hidden{display:none;}
+  .note{font-size:11px;color:var(--muted);line-height:1.5;}
+  footer{padding:10px var(--pad) 24px;color:var(--muted);font-size:11px;text-align:center;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Vocal → Track</h1>
+    <span class="sub">isolated vocal → notes for the Pitch Trainer</span>
+    <a class="link" id="openTrainer" href="./index.html">Open trainer →</a>
+  </header>
+
+  <main>
+    <div class="card">
+      <div class="step"><span class="n">1</span><h2>Load an isolated vocal</h2></div>
+      <label class="drop" id="drop" for="file">
+        <b>Tap to choose</b> or drop an audio file here<br>
+        <span style="font-size:11px">acapella / vocal stem only · mp3, wav, m4a, ogg</span>
+      </label>
+      <input type="file" id="file" accept="audio/*">
+      <div class="stat" id="fileStat"></div>
+      <div class="btnrow hidden" id="origRow">
+        <button class="btn sec" id="playOrig">▶ Play original</button>
+        <button class="btn sec" id="stopOrig">■ Stop</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="paramCard">
+      <div class="step"><span class="n">2</span><h2>Tempo &amp; detection</h2></div>
+      <div class="grid">
+        <div class="field">
+          <label>Tempo (BPM)</label>
+          <div class="rowin">
+            <input type="number" id="bpm" min="40" max="200" value="80">
+            <button class="tap" id="tapBtn">Tap</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Snap to grid</label>
+          <select id="snap">
+            <option value="1">¼ note (beat)</option>
+            <option value="0.5">⅛ note</option>
+            <option value="0.25" selected>1⁄16 note</option>
+            <option value="0.125">1⁄32 note</option>
+            <option value="0">no quantize</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Silence threshold <span class="rangeval" id="silv">10%</span></label>
+          <input type="range" id="sil" min="3" max="30" value="10">
+        </div>
+        <div class="field">
+          <label>Min note length <span class="rangeval" id="minv">90 ms</span></label>
+          <input type="range" id="mindur" min="50" max="250" value="90" step="10">
+        </div>
+        <div class="field">
+          <label>Split sensitivity <span class="rangeval" id="splv">0.8 st</span></label>
+          <input type="range" id="split" min="4" max="15" value="8">
+        </div>
+        <div class="field">
+          <label>Phrase gap <span class="rangeval" id="phv">2.0 b</span></label>
+          <input type="range" id="phgap" min="10" max="40" value="20"><!-- /10 beats -->
+        </div>
+      </div>
+      <div id="bar"><div id="barfill"></div></div>
+      <div class="btnrow">
+        <button class="btn" id="analyze">Analyze</button>
+      </div>
+      <div class="note">Detection assumes one voice at a time. Consonants, breaths, and vibrato can create stray notes — clean them up later in the trainer's editor. Set the tempo close first; the grid snap depends on it.</div>
+    </div>
+
+    <div class="card hidden" id="resultCard">
+      <div class="step"><span class="n">3</span><h2>Preview</h2></div>
+      <canvas id="roll" width="960" height="200"></canvas>
+      <div class="stat" id="resStat"></div>
+      <div class="btnrow">
+        <button class="btn sec" id="playTrack">▶ Play transcription</button>
+        <button class="btn sec" id="playBoth">▶ Play with original</button>
+        <button class="btn sec" id="stopAll">■ Stop</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="saveCard">
+      <div class="step"><span class="n">4</span><h2>Name &amp; add to project</h2></div>
+      <div class="field">
+        <label>Melody name</label>
+        <input type="number" class="hidden"><!-- keep layout consistent -->
+        <input type="text" id="name" placeholder="e.g. Lassie Go (from stem)"
+          style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;">
+      </div>
+      <div class="btnrow">
+        <button class="btn" id="bakeJson">Copy for baking</button>
+        <button class="btn sec" id="addLib">Add to Trainer</button>
+        <button class="btn sec" id="copyJson">Copy JSON</button>
+        <button class="btn sec" id="dlJson">Download .json</button>
+      </div>
+      <div class="note"><b>Copy for baking</b> gives you one line to hand to Claude (or paste yourself) to build the song permanently into the trainer. <b>Add to Trainer</b> saves into this browser's storage so it shows up after a reload — same-browser only. Copy/Download JSON is the portable bridge for another device.</div>
+    </div>
+
+    <div id="msg"></div>
+  </main>
+  <footer>Companion to the Pitch Trainer · works best on desktop with a clean vocal stem</footer>
+</div>
+
+<script>
+"use strict";
+window.addEventListener('error',ev=>{
+  const m=document.getElementById('msg');if(m){m.classList.add('err');m.textContent='Error: '+(ev.message||'unknown');}
+});
+const LS_KEY='pitchTrainerLibrary_v1';
+const FLAT_NAMES=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+const noteName=m=>FLAT_NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1);
+const midiToFreq=m=>440*Math.pow(2,(m-69)/12);
+const median=a=>{const s=[...a].sort((x,y)=>x-y);return s[Math.floor(s.length/2)];};
+
+let audioCtx=null,outGain=null,noiseBuf=null;
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    outGain=audioCtx.createGain();outGain.gain.value=0.85;outGain.connect(audioCtx.destination);
+    const n=Math.floor(audioCtx.sampleRate*0.05);
+    noiseBuf=audioCtx.createBuffer(1,n,audioCtx.sampleRate);
+    const d=noiseBuf.getChannelData(0);for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+  }
+  if(audioCtx.state!=='running') audioCtx.resume();
+}
+/* piano voice (shared design with the trainer) */
+function piano(time,freq,dur,level){
+  const body=audioCtx.createBiquadFilter();
+  body.type='lowpass';
+  body.frequency.setValueAtTime(Math.min(freq*14,9000),time);
+  body.frequency.exponentialRampToValueAtTime(Math.max(freq*3,600),time+Math.min(dur,1.4));
+  body.Q.value=0.4;body.connect(outGain);
+  const partials=[[1,1],[2,.46],[3,.26],[4,.14],[5,.085],[6,.05]];
+  const B=0.0004;
+  partials.forEach(([n,amp])=>{
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type='sine';o.frequency.value=freq*n*Math.sqrt(1+B*n*n);
+    const decay=Math.max(dur*(1.05/(1+n*0.42)),0.14);
+    g.gain.setValueAtTime(0,time);
+    g.gain.linearRampToValueAtTime(level*amp,time+0.004);
+    g.gain.exponentialRampToValueAtTime(Math.max(level*amp*0.28,0.0002),time+Math.min(decay*0.3,0.22));
+    g.gain.exponentialRampToValueAtTime(0.00012,time+decay);
+    o.connect(g).connect(body);o.start(time);o.stop(time+decay+0.08);
+  });
+  const src=audioCtx.createBufferSource(),bp=audioCtx.createBiquadFilter(),ng=audioCtx.createGain();
+  src.buffer=noiseBuf;bp.type='bandpass';bp.frequency.value=Math.min(freq*6,3800);bp.Q.value=0.8;
+  ng.gain.setValueAtTime(level*0.5,time);
+  ng.gain.exponentialRampToValueAtTime(0.0001,time+0.045);
+  src.connect(bp).connect(ng).connect(outGain);src.start(time);src.stop(time+0.06);
+}
+
+/* ---------- state ---------- */
+let decoded=null;          // AudioBuffer
+let phrasesModel=null;     // [[{m,b,s}]]
+let flatEvents=[];         // for preview playback
+function msg(s,err){const m=document.getElementById('msg');m.classList.toggle('err',!!err);m.textContent=s;}
+
+/* ---------- file load ---------- */
+const drop=document.getElementById('drop'),fileInput=document.getElementById('file');
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
+drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');
+  if(e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);});
+fileInput.addEventListener('change',e=>{if(e.target.files[0]) loadFile(e.target.files[0]);});
+
+async function loadFile(f){
+  msg('Decoding "'+f.name+'"…');
+  ensureAudio();
+  try{
+    const buf=await f.arrayBuffer();
+    decoded=await audioCtx.decodeAudioData(buf);
+    const dur=decoded.duration;
+    document.getElementById('fileStat').innerHTML=
+      '<span><b>'+f.name+'</b></span><span>'+dur.toFixed(1)+' s</span><span>'+
+      decoded.sampleRate+' Hz</span><span>'+decoded.numberOfChannels+' ch</span>';
+    document.getElementById('origRow').classList.remove('hidden');
+    document.getElementById('paramCard').classList.remove('hidden');
+    if(dur>360) msg('Long file ('+Math.round(dur)+'s) — analysis may take a bit.');
+    else msg('Loaded. Set the tempo, then Analyze.');
+    if(!document.getElementById('name').value)
+      document.getElementById('name').value=f.name.replace(/\.[^.]+$/,'');
+  }catch(e){ msg('Could not decode that file. Try wav or mp3.',true); }
+}
+
+/* play original */
+let origSrc=null;
+document.getElementById('playOrig').onclick=()=>{
+  if(!decoded) return;ensureAudio();stopOrig();
+  origSrc=audioCtx.createBufferSource();origSrc.buffer=decoded;origSrc.connect(outGain);origSrc.start();
+};
+function stopOrig(){if(origSrc){try{origSrc.stop();}catch(e){}origSrc=null;}}
+document.getElementById('stopOrig').onclick=stopOrig;
+
+/* ---------- tap tempo ---------- */
+let taps=[];
+document.getElementById('tapBtn').onclick=()=>{
+  const now=performance.now();
+  taps.push(now);taps=taps.filter(t=>now-t<3000);
+  if(taps.length>=2){
+    const iv=[];for(let i=1;i<taps.length;i++) iv.push(taps[i]-taps[i-1]);
+    const bpm=Math.round(60000/median(iv));
+    document.getElementById('bpm').value=Math.max(40,Math.min(200,bpm));
+  }
+};
+
+/* ---------- slider labels ---------- */
+const sil=document.getElementById('sil'),silv=document.getElementById('silv');
+sil.oninput=()=>silv.textContent=sil.value+'%';
+const mindur=document.getElementById('mindur'),minv=document.getElementById('minv');
+mindur.oninput=()=>minv.textContent=mindur.value+' ms';
+const split=document.getElementById('split'),splv=document.getElementById('splv');
+split.oninput=()=>splv.textContent=(split.value/10).toFixed(1)+' st';
+const phgap=document.getElementById('phgap'),phv=document.getElementById('phv');
+phgap.oninput=()=>phv.textContent=(phgap.value/10).toFixed(1)+' b';
+
+/* ---------- analysis ---------- */
+function corrAt(ds,off,lag,L){let c=0;for(let k=0;k<L;k++) c+=ds[off+k]*ds[off+k+lag];return c;}
+function medianSmooth(arr,win){
+  const half=win>>1,out=new Array(arr.length);
+  for(let i=0;i<arr.length;i++){
+    const seg=[];
+    for(let j=i-half;j<=i+half;j++){if(j>=0&&j<arr.length&&arr[j]!=null) seg.push(arr[j]);}
+    out[i]=seg.length?median(seg):null;
+  }
+  return out;
+}
+document.getElementById('analyze').onclick=()=>{
+  if(!decoded){msg('Load a file first.',true);return;}
+  ensureAudio();
+  const bar=document.getElementById('bar'),fill=document.getElementById('barfill');
+  bar.style.display='block';fill.style.width='0%';
+  document.getElementById('analyze').disabled=true;
+  msg('Analyzing…');
+
+  // downmix ch0, downsample to 16k
+  const srIn=decoded.sampleRate, src=decoded.getChannelData(0);
+  const target=16000, ratio=srIn/target, outLen=Math.floor(src.length/ratio);
+  const ds=new Float32Array(outLen);
+  for(let i=0;i<outLen;i++){
+    const i0=Math.floor(i*ratio);let s=0,c=0;
+    for(let j=i0;j<i0+ratio&&j<src.length;j++){s+=src[j];c++;}
+    ds[i]=c?s/c:0;
+  }
+  const sr=target, N=1024, hop=512;
+  const minLag=Math.floor(sr/1000), maxLag=Math.floor(sr/80), L=N-maxLag;
+  const nFrames=Math.max(0,Math.floor((ds.length-N)/hop));
+  const frames=new Array(nFrames);
+  let maxRms=1e-9, i=0;
+  const hopT=hop/sr;
+
+  function step(){
+    const end=Math.min(i+120,nFrames);
+    for(;i<end;i++){
+      const off=i*hop;
+      let e=0;for(let k=0;k<N;k++){const v=ds[off+k];e+=v*v;}
+      const rms=Math.sqrt(e/N);if(rms>maxRms)maxRms=rms;
+      let midi=null;
+      if(rms>1e-4){
+        let best=-1,bestLag=-1;
+        for(let lag=minLag;lag<=maxLag;lag++){
+          let c=0;for(let k=0;k<L;k++) c+=ds[off+k]*ds[off+k+lag];
+          if(c>best){best=c;bestLag=lag;}
+        }
+        let e0=0;for(let k=0;k<L;k++) e0+=ds[off+k]*ds[off+k];
+        if(bestLag>0&&best/(e0||1)>0.34){
+          const cm1=bestLag-1>=minLag?corrAt(ds,off,bestLag-1,L):best;
+          const cp1=bestLag+1<=maxLag?corrAt(ds,off,bestLag+1,L):best;
+          const a=(cm1+cp1-2*best),b=(cp1-cm1)/2;
+          let lag=bestLag;if(a!==0) lag=bestLag-b/(2*a);
+          midi=69+12*Math.log2((sr/lag)/440);
+        }
+      }
+      frames[i]={t:off/sr,midi,rms};
+    }
+    fill.style.width=Math.round(i/nFrames*100)+'%';
+    if(i<nFrames) setTimeout(step,0);
+    else finishAnalyze(frames,maxRms,hopT);
+  }
+  setTimeout(step,10);
+};
+
+function finishAnalyze(frames,maxRms,hopT){
+  const rmsGate=maxRms*(+sil.value/100);
+  const minDur=+mindur.value/1000;
+  const splitSt=+split.value/10;
+  const raw=frames.map(f=>(f.midi!=null&&f.rms>=rmsGate)?f.midi:null);
+  const sm=medianSmooth(raw,5);
+  // segment
+  const notes=[];let cur=null;
+  for(let i=0;i<sm.length;i++){
+    const m=sm[i];
+    if(m==null){if(cur){notes.push(cur);cur=null;}continue;}
+    if(!cur) cur={s:frames[i].t,e:frames[i].t+hopT,vals:[m]};
+    else{
+      if(Math.abs(m-median(cur.vals))>splitSt){notes.push(cur);cur={s:frames[i].t,e:frames[i].t+hopT,vals:[m]};}
+      else{cur.vals.push(m);cur.e=frames[i].t+hopT;}
+    }
+  }
+  if(cur) notes.push(cur);
+  let segs=notes.map(n=>({s:n.s,e:n.e,m:Math.round(median(n.vals))})).filter(n=>n.e-n.s>=minDur);
+  // merge adjacent same pitch across tiny gaps
+  const merged=[];
+  for(const n of segs){
+    const last=merged[merged.length-1];
+    if(last&&last.m===n.m&&n.s-last.e<0.06) last.e=n.e;
+    else merged.push({...n});
+  }
+  if(!merged.length){
+    msg('No notes found. Lower the silence threshold or check that the file is an isolated vocal.',true);
+    document.getElementById('analyze').disabled=false;
+    document.getElementById('bar').style.display='none';
+    return;
+  }
+  phrasesModel=toModel(merged,+document.getElementById('bpm').value,+document.getElementById('snap').value,+phgap.value/10);
+  flatEvents=buildFlat(phrasesModel,+document.getElementById('bpm').value);
+  showResults(merged.length);
+  document.getElementById('analyze').disabled=false;
+  document.getElementById('bar').style.display='none';
+}
+
+function toModel(notes,bpm,snap,phraseGap){
+  const beat=60/bpm, t0=notes[0].s;
+  let ev=notes.map(n=>({s:(n.s-t0)/beat,b:(n.e-n.s)/beat,m:n.m}));
+  if(snap>0) ev.forEach(n=>{n.s=Math.round(n.s/snap)*snap;n.b=Math.max(snap,Math.round(n.b/snap)*snap);});
+  else ev.forEach(n=>{n.b=Math.max(0.25,n.b);});
+  ev.sort((a,b)=>a.s-b.s);
+  const q=snap>0?snap:0.25;
+  for(let i=0;i<ev.length-1;i++) if(ev[i].s+ev[i].b>ev[i+1].s) ev[i].b=Math.max(q,ev[i+1].s-ev[i].s);
+  const phrases=[];let curP=[],prevEnd=0;
+  ev.forEach((n,i)=>{
+    if(i>0&&n.s-prevEnd>=phraseGap){phrases.push(curP);curP=[];}
+    curP.push(n);prevEnd=n.s+n.b;
+  });
+  if(curP.length) phrases.push(curP);
+  phrases.forEach(ph=>{const base=ph[0].s;ph.forEach(n=>{n.s=+(n.s-base).toFixed(3);n.b=+n.b.toFixed(3);});});
+  return phrases;
+}
+function buildFlat(phrases,bpm){
+  const beat=60/bpm;let base=0;const evs=[];
+  phrases.forEach(ph=>{
+    ph.forEach(n=>evs.push({t:(base+n.s)*beat,dur:n.b*beat,m:n.m}));
+    const span=Math.max(...ph.map(n=>n.s+n.b),0);base+=span+1;
+  });
+  evs.sort((a,b)=>a.t-b.t);return evs;
+}
+
+/* ---------- results / preview ---------- */
+function showResults(rawCount){
+  document.getElementById('resultCard').classList.remove('hidden');
+  document.getElementById('saveCard').classList.remove('hidden');
+  let lo=Infinity,hi=-Infinity,count=0;
+  phrasesModel.forEach(ph=>ph.forEach(n=>{lo=Math.min(lo,n.m);hi=Math.max(hi,n.m);count++;}));
+  document.getElementById('resStat').innerHTML=
+    '<span><b>'+count+'</b> notes</span>'+
+    '<span><b>'+phrasesModel.length+'</b> phrases</span>'+
+    '<span>range <b>'+noteName(lo)+'–'+noteName(hi)+'</b></span>'+
+    '<span>from '+rawCount+' raw segments</span>';
+  drawRoll();
+  msg('Done. Preview it, then name and add.');
+}
+const roll=document.getElementById('roll'),rctx=roll.getContext('2d');
+let playhead=null;
+function drawRoll(){
+  const cw=roll.clientWidth,dpr=Math.min(window.devicePixelRatio||1,2);
+  roll.width=cw*dpr;roll.height=200*dpr;rctx.setTransform(dpr,0,0,dpr,0,0);
+  const W=cw,H=200;
+  rctx.clearRect(0,0,W,H);
+  if(!flatEvents.length) return;
+  const totalT=Math.max(...flatEvents.map(e=>e.t+e.dur));
+  let lo=Infinity,hi=-Infinity;
+  flatEvents.forEach(e=>{lo=Math.min(lo,e.m);hi=Math.max(hi,e.m);});
+  lo-=2;hi+=2;
+  const x=t=>8+(t/totalT)*(W-16);
+  const y=m=>H-10-((m-lo)/(hi-lo))*(H-20);
+  // gridlines
+  for(let m=Math.ceil(lo);m<=Math.floor(hi);m++){
+    const yy=y(m);
+    const nat=[0,2,4,5,7,9,11].includes(((m%12)+12)%12);
+    rctx.strokeStyle=nat?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.025)';
+    rctx.beginPath();rctx.moveTo(0,yy);rctx.lineTo(W,yy);rctx.stroke();
+    if(nat){rctx.fillStyle='rgba(139,144,163,0.5)';rctx.font='9px ui-monospace,Menlo';rctx.fillText(noteName(m),3,yy-1);}
+  }
+  flatEvents.forEach(e=>{
+    const xx=x(e.t),ww=Math.max(x(e.t+e.dur)-xx-1,2),yy=y(e.m);
+    rctx.fillStyle='rgba(79,209,197,0.5)';rctx.strokeStyle='rgba(79,209,197,0.9)';
+    rctx.lineWidth=1;
+    rctx.fillRect(xx,yy-4,ww,8);rctx.strokeRect(xx,yy-4,ww,8);
+  });
+  if(playhead!==null){
+    const px=x(playhead);
+    rctx.strokeStyle='rgba(245,196,81,0.9)';rctx.lineWidth=2;
+    rctx.beginPath();rctx.moveTo(px,0);rctx.lineTo(px,H);rctx.stroke();
+  }
+}
+window.addEventListener('resize',()=>{if(flatEvents.length) drawRoll();});
+
+/* preview playback (rolling scheduler) */
+let playing=false,pIdx=0,pTimer=null,pStart=0,withOrig=false,animId=null;
+function startPreview(both){
+  if(!flatEvents.length) return;
+  ensureAudio();stopPreview();stopOrig();
+  playing=true;pIdx=0;withOrig=both;
+  pStart=audioCtx.currentTime+0.15;
+  if(both&&decoded){origSrc=audioCtx.createBufferSource();origSrc.buffer=decoded;origSrc.connect(outGain);origSrc.start(pStart);}
+  pTimer=setInterval(tick,60);
+  anim();
+}
+function tick(){
+  if(!playing) return;
+  const now=audioCtx.currentTime,horizon=now+0.7;
+  while(pIdx<flatEvents.length&&pStart+flatEvents[pIdx].t<horizon){
+    const e=flatEvents[pIdx];
+    piano(Math.max(pStart+e.t,now+0.02),midiToFreq(e.m),Math.min(e.dur*1.35+0.35,2.6),0.22);
+    pIdx++;
+  }
+  const last=flatEvents[flatEvents.length-1];
+  if(now>pStart+last.t+last.dur+0.3) stopPreview();
+}
+function anim(){
+  if(!playing){playhead=null;drawRoll();return;}
+  playhead=audioCtx.currentTime-pStart;
+  drawRoll();animId=requestAnimationFrame(anim);
+}
+function stopPreview(){
+  playing=false;if(pTimer){clearInterval(pTimer);pTimer=null;}
+  if(animId){cancelAnimationFrame(animId);animId=null;}
+  if(withOrig) stopOrig();
+  playhead=null;drawRoll();
+}
+document.getElementById('playTrack').onclick=()=>startPreview(false);
+document.getElementById('playBoth').onclick=()=>startPreview(true);
+document.getElementById('stopAll').onclick=()=>{stopPreview();stopOrig();};
+
+/* ---------- save ---------- */
+function currentName(){return (document.getElementById('name').value||'Imported vocal').trim();}
+document.getElementById('bakeJson').onclick=async()=>{
+  if(!phrasesModel){msg('Analyze first.',true);return;}
+  const bpm=+document.getElementById('bpm').value||80;
+  const obj={name:currentName(),bpm:bpm,phrases:phrasesModel};
+  const line=JSON.stringify(obj)+',';
+  try{await navigator.clipboard.writeText(line);
+    msg('Copied a baking line for "'+currentName()+'". Paste it to Claude, or into BAKED_SONGS between the PASTE markers.');}
+  catch(e){prompt('Copy this line into BAKED_SONGS (or paste to Claude):',line);}
+};
+document.getElementById('addLib').onclick=()=>{
+  if(!phrasesModel){msg('Analyze first.',true);return;}
+  let lib=[];
+  try{const raw=localStorage.getItem(LS_KEY);if(raw) lib=JSON.parse(raw)||[];}catch(e){}
+  lib.push({id:'u'+Date.now().toString(36),name:currentName(),phrases:phrasesModel});
+  try{
+    localStorage.setItem(LS_KEY,JSON.stringify(lib));
+    msg('Added "'+currentName()+'". Reload the trainer and pick it from the dropdown.');
+  }catch(e){ msg('Storage is blocked here — use Copy JSON or Download instead.',true); }
+};
+document.getElementById('copyJson').onclick=async()=>{
+  if(!phrasesModel){msg('Analyze first.',true);return;}
+  const json=JSON.stringify({name:currentName(),phrases:phrasesModel});
+  try{await navigator.clipboard.writeText(json);msg('JSON copied. Paste it via the trainer editor.');}
+  catch(e){prompt('Copy this JSON:',json);}
+};
+document.getElementById('dlJson').onclick=()=>{
+  if(!phrasesModel){msg('Analyze first.',true);return;}
+  const json=JSON.stringify({name:currentName(),phrases:phrasesModel},null,0);
+  const blob=new Blob([json],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=currentName().replace(/[^\w-]+/g,'_')+'.json';
+  a.click();URL.revokeObjectURL(a.href);
+  msg('Downloaded.');
+};
+</script>
+</body>
+</html>
